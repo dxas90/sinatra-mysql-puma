@@ -41,11 +41,14 @@ post "/submit" do
 	end
 end
 
-
 get "/robots.txt" do
   %{User-agent: *\nDisallow: /}
 end
 
 get "/ip" do
   request.ip
+end
+
+not_found do
+  'This is nowhere to be found.'
 end

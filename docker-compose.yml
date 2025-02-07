@@ -1,0 +1,26 @@
+services:
+  ruby-app:
+    build: .
+    image: ruby
+    container_name: ruby-app
+    volumes:
+      - .:/app
+    ports:
+      - "8080:8080"
+    command: sleep infinity
+    env_file:
+      - .env
+    environment:
+      EXTRA_VAR: dummy
+
+  mysql:
+    image: mysql
+    container_name: ruby-database
+    env_file:
+      - .env
+    environment:
+      EXTRA_VAR: dummy
+      MYSQL_DATABASE: test
+      MYSQL_USER: test
+      MYSQL_PASSWORD: fAFxPEOQmLn1Y25f2
+      MYSQL_ROOT_PASSWORD: 8DNHjuNiaGfTDo8gdt5nSjzyia8jL6nv
