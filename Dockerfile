@@ -3,7 +3,7 @@ FROM ruby
 ARG ENVIRONMENT=
 
 RUN apt update && \
-    apt install ruby-dev gem bundler ruby-bundler make gcc libmysqlclient-dev libmysql++-dev
+    apt install ruby-dev gem bundler ruby-bundler make gcc default-libmysqlclient-dev libmysql++-dev
 
 WORKDIR /app
 
