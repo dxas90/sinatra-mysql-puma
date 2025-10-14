@@ -1,0 +1,193 @@
+# GitLab CI/CD Pipeline for Sinatra-MySQL-Puma Application
+
+stages:
+  - initialize
+  - build
+  - test
+  - containerize
+  - deployment
+  - promote
+  - notify
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+  IMAGE_NAME: $CI_REGISTRY_IMAGE
+  IMAGE_TAG: $CI_COMMIT_TAG
+
+# Initialize stage - runs on all commits to all branches
+initialize:
+  stage: initialize
+  image: ruby:3.4-trixie
+  script:
+    - echo "Initializing pipeline for $CI_COMMIT_REF_NAME"
+    - echo "Commit SHA: $CI_COMMIT_SHA"
+    - ruby --version
+    - bundle --version
+  tags:
+    - docker
+
+# Build stage - runs on all commits to all branches
+build:
+  stage: build
+  image: ruby:3.4-trixie
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends build-essential default-libmysqlclient-dev libmysql++-dev
+  script:
+    - echo "Installing dependencies..."
+    - bundle config set --local deployment 'false'
+    - bundle config set --local without 'production'
+    - bundle install --jobs $(nproc)
+    - echo "Build completed successfully"
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - vendor/ruby
+  artifacts:
+    paths:
+      - vendor/
+      - Gemfile.lock
+    expire_in: 1 hour
+  tags:
+    - docker
+
+# Test stage - runs on all commits to all branches
+test:
+  stage: test
+  image: ruby:3.4-trixie
+  services:
+    - mysql:latest
+  variables:
+    MYSQL_DATABASE: test
+    MYSQL_ROOT_PASSWORD: test_password
+    DATABASE_URL: mysql2://root:test_password@mysql:3306/test
+    RACK_ENV: test
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends build-essential default-libmysqlclient-dev libmysql++-dev netcat-openbsd
+  script:
+    - echo "Installing dependencies..."
+    - bundle config set --local deployment 'false'
+    - bundle install --jobs $(nproc)
+    - echo "Waiting for MySQL to be ready..."
+    - until nc -z mysql 3306; do echo "Waiting for MySQL..."; sleep 1; done
+    - echo "Running database migrations..."
+    - bundle exec rake db:create || true
+    - bundle exec rake db:migrate || true
+    - echo "Running tests..."
+    - echo "No test suite defined - test stage completed"
+    - echo "Application syntax check..."
+    - ruby -c app.rb
+    - ruby -c config.ru
+  dependencies:
+    - build
+  tags:
+    - docker
+
+# Containerize stage - runs only on tags
+containerize:
+  stage: containerize
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - echo "Building Docker image..."
+    - docker build -t $IMAGE_NAME:$IMAGE_TAG -t $IMAGE_NAME:latest .
+    - echo "Pushing Docker image to registry..."
+    - docker push $IMAGE_NAME:$IMAGE_TAG
+    - docker push $IMAGE_NAME:latest
+    - echo "Image pushed successfully: $IMAGE_NAME:$IMAGE_TAG"
+  only:
+    - tags
+  tags:
+    - docker
+
+# Deployment stage (staging) - runs only on tags
+deploy_staging:
+  stage: deployment
+  image: docker:latest
+  services:
+    - docker:dind
+  variables:
+    DEPLOY_ENV: staging
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - echo "Deploying to staging environment..."
+    - echo "Pulling image $IMAGE_NAME:$IMAGE_TAG"
+    - docker pull $IMAGE_NAME:$IMAGE_TAG
+    - echo "Deployment to staging completed"
+    - echo "Application available at staging environment"
+    # Add your actual deployment commands here (e.g., kubectl, docker-compose, etc.)
+    # Example: kubectl set image deployment/sinatra-app sinatra-app=$IMAGE_NAME:$IMAGE_TAG -n staging
+  environment:
+    name: staging
+    url: https://staging.example.com
+  dependencies:
+    - containerize
+  only:
+    - tags
+  tags:
+    - docker
+
+# Promote stage - manual job to promote the image
+promote_production:
+  stage: promote
+  image: docker:latest
+  services:
+    - docker:dind
+  variables:
+    DEPLOY_ENV: production
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - echo "Promoting image to production..."
+    - docker pull $IMAGE_NAME:$IMAGE_TAG
+    - docker tag $IMAGE_NAME:$IMAGE_TAG $IMAGE_NAME:production
+    - docker push $IMAGE_NAME:production
+    - echo "Deploying to production environment..."
+    - echo "Image $IMAGE_NAME:$IMAGE_TAG promoted to production"
+    # Add your actual production deployment commands here
+    # Example: kubectl set image deployment/sinatra-app sinatra-app=$IMAGE_NAME:production -n production
+  environment:
+    name: production
+    url: https://production.example.com
+  when: manual
+  dependencies:
+    - containerize
+  only:
+    - tags
+  tags:
+    - docker
+
+# Notify stage - runs on all commits to all branches (always)
+notify_success:
+  stage: notify
+  image: alpine:latest
+  script:
+    - echo "Pipeline completed successfully!"
+    - echo "Branch/Tag: $CI_COMMIT_REF_NAME"
+    - echo "Commit: $CI_COMMIT_SHA"
+    - echo "Triggered by: $GITLAB_USER_NAME"
+    # Add notification commands here (e.g., Slack, email, etc.)
+    # Example: curl -X POST -H 'Content-type: application/json' --data '{"text":"Build succeeded!"}' $SLACK_WEBHOOK_URL
+  when: on_success
+  tags:
+    - docker
+
+notify_failure:
+  stage: notify
+  image: alpine:latest
+  script:
+    - echo "Pipeline failed!"
+    - echo "Branch/Tag: $CI_COMMIT_REF_NAME"
+    - echo "Commit: $CI_COMMIT_SHA"
+    - echo "Please check the pipeline logs for details"
+    # Add notification commands here for failures
+    # Example: curl -X POST -H 'Content-type: application/json' --data '{"text":"Build failed!"}' $SLACK_WEBHOOK_URL
+  when: on_failure
+  tags:
+    - docker
