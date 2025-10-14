@@ -1,16 +1,52 @@
-FROM ruby
+# syntax=docker/dockerfile:1.4
+FROM ruby:3.3-trixie AS base
 
-ARG ENVIRONMENT=
+# Default environment
+ARG ENVIRONMENT=production
+ENV ENVIRONMENT=${ENVIRONMENT}
 
-RUN apt update && \
-    apt install ruby-dev gem bundler ruby-bundler make gcc default-libmysqlclient-dev libmysql++-dev
+# Create a non-root user for security
+ARG UID=10001
+RUN adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "/nonexistent" \
+    --shell "/usr/sbin/nologin" \
+    --no-create-home \
+    --uid "${UID}" \
+    appuser
+
+# Install required system packages
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        default-libmysqlclient-dev \
+        libmysql++-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY . /app
+# Copy Gem definitions early for layer caching
+COPY Gemfile Gemfile.lock ./
 
-ENV ENVIRONMENT=${ENVIRONMENT:-production}
+# Install gems with caching
+RUN --mount=type=cache,target=/usr/local/bundle \
+    bundle config set deployment 'true' && \
+    bundle config set without 'development test' && \
+    bundle install
 
-RUN bundler install && rake db:schema:load RACK_ENV=${ENVIRONMENT}
+# Copy the full application code
+COPY . .
 
-CMD ["bundle", "exec", "puma", "config.ru", "-C", "puma.rb"]
+# Copy entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Expose default Puma port
+EXPOSE 9292
+
+# Run as non-root user
+USER appuser
+
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["bundle", "exec", "puma", "-C", "puma.rb"]
