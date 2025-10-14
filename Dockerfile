@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.4
+# syntax=docker/dockerfile:1.19
 FROM ruby:3.3-trixie AS base
 
 # Default environment
