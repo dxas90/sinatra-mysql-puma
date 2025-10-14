@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.19
-FROM ruby:3.3-trixie AS base
+FROM ruby:3.4-trixie AS base
 
 # Default environment
 ARG ENVIRONMENT=production
