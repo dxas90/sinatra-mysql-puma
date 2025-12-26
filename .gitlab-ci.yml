@@ -18,7 +18,7 @@ variables:
 # Initialize stage - runs on all commits to all branches
 initialize:
   stage: initialize
-  image: ruby:3.4-trixie
+  image: ruby:4.0-trixie
   script:
     - echo "Initializing pipeline for $CI_COMMIT_REF_NAME"
     - echo "Commit SHA: $CI_COMMIT_SHA"
@@ -30,7 +30,7 @@ initialize:
 # Build stage - runs on all commits to all branches
 build:
   stage: build
-  image: ruby:3.4-trixie
+  image: ruby:4.0-trixie
   before_script:
     - apt-get update -qq
     - apt-get install -y --no-install-recommends build-essential default-libmysqlclient-dev libmysql++-dev
@@ -55,7 +55,7 @@ build:
 # Test stage - runs on all commits to all branches
 test:
   stage: test
-  image: ruby:3.4-trixie
+  image: ruby:4.0-trixie
   services:
     - mysql:latest
   variables:
